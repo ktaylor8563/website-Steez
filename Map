@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultra-Realistic Solar System</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000000;
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            cursor: crosshair;
+        }
+        #globeViz {
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px 25px;
+            border-radius: 2px;
+            font-size: 13px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            border: 1px solid #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        #info h2 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #FFD700;
+            font-weight: 300;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        #info p {
+            margin: 8px 0;
+            font-weight: 300;
+            letter-spacing: 0.5px;
+            font-size: 12px;
+        }
+        #hover-label {
+            position: absolute;
+            display: none;
+            background: rgba(0, 0, 0, 0.95);
+            color: #ffffff;
+            padding: 15px 20px;
+            border: 2px solid #FFD700;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+        }
+        #hover-label .title {
+            color: #FFD700;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        #hover-label .details {
+            font-size: 12px;
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>🌍 Ultra-Realistic System</h2>
+        <p><span style="color:#FFD700">🖱️</span> Drag to Rotate</p>
+        <p><span style="color:#FFD700">🔍</span> Scroll to Zoom</p>
+        <p><span style="color:#FFD700">👆</span> Hover planets for info</p>
+    </div>
+    <div id="hover-label"></div>
+    <div id="globeViz"></div>
+
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/globe.gl"></script>
+
+    <script>
+        console.log('Creating ultra-realistic solar system...');
+        
+        const world = Globe()
+            (document.getElementById('globeViz'))
+            .backgroundColor('#000000')
+            .showAtmosphere(true)
+            .atmosphereColor('#FFD700')
+            .atmosphereAltitude(0.15)
+            .width(window.innerWidth)
+            .height(window.innerHeight);
+
+        // Keep Earth in gold/white theme
+        fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+            .then(res => res.json())
+            .then(countries => {
+                world
+                    .polygonsData(countries.features)
+                    .polygonCapColor(() => '#ffffff')
+                    .polygonSideColor(() => 'rgba(255, 255, 255, 0.8)')
+                    .polygonStrokeColor(() => '#FFD700')
+                    .polygonAltitude(0.01)
+                    .polygonLabel(({ properties: d }) => `
+                        <div style="background: rgba(0,0,0,0.95); padding: 12px 16px; border: 1px solid #FFD700; border-radius: 2px; color: #fff;">
+                            <b style="color: #FFD700; font-size: 16px;">${d.ADMIN}</b>
+                        </div>
+                    `);
+            });
+
+        world.globeMaterial().color = { r: 0, g: 0, b: 0 };
+        world.controls().autoRotate = true;
+        world.controls().autoRotateSpeed = 0.15;
+
+        // Texture loader
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.crossOrigin = 'anonymous';
+
+        // Raycaster for hover
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const hoverLabel = document.getElementById('hover-label');
+        let celestialBodies = [];
+        let planets = [];
+
+        document.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // High-quality procedural textures as fallback
+        function createDetailedPlanetTexture(config) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            
+            // Base color
+            ctx.fillStyle = config.baseColor;
+            ctx.fillRect(0, 0, 2048, 1024);
+            
+            // Add terrain features
+            ctx.globalCompositeOperation = 'multiply';
+            for (let i = 0; i < config.features; i++) {
+                ctx.fillStyle = config.featureColor;
+                ctx.globalAlpha = Math.random() * 0.3 + 0.2;
+                const x = Math.random() * 2048;
+                const y = Math.random() * 1024;
+                const w = Math.random() * 200 + 50;
+                const h = Math.random() * 100 + 30;
+                ctx.fillRect(x, y, w, h);
+            }
+            
+            // Add craters/spots
+            ctx.globalCompositeOperation = 'source-over';
+            for (let i = 0; i < config.craters; i++) {
+                const x = Math.random() * 2048;
+                const y = Math.random() * 1024;
+                const radius = Math.random() * 40 + 10;
+                
+                ctx.globalAlpha = 0.6;
+                ctx.fillStyle = config.craterColor;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = config.craterRim;
+                ctx.beginPath();
+                ctx.arc(x, y, radius * 1.2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        setTimeout(() => {
+            console.log('Adding celestial bodies with high-quality textures...');
+            const scene = world.scene();
+            const camera = world.camera();
+            
+            // Stars
+            const starGeometry = new THREE.BufferGeometry();
+            const starVertices = [];
+            const starColors = [];
+            
+            for (let i = 0; i < 20000; i++) {
+                starVertices.push(
+                    (Math.random() - 0.5) * 3000,
+                    (Math.random() - 0.5) * 3000,
+                    (Math.random() - 0.5) * 3000
+                );
+                const temp = Math.random();
+                if (temp < 0.3) starColors.push(0.5, 0.6, 1);
+                else if (temp < 0.7) starColors.push(1, 1, 1);
+                else if (temp < 0.95) starColors.push(1, 0.9, 0.5);
+                else starColors.push(1, 0.4, 0.2);
+            }
+            
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+            
+            const stars = new THREE.Points(
+                starGeometry,
+                new THREE.PointsMaterial({ 
+                    size: 1.5,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.9
+                })
+            );
+            scene.add(stars);
+
+            // Lighting
+            const sunLight = new THREE.PointLight(0xffffee, 2.5, 2500);
+            sunLight.position.set(250, 50, 150);
+            scene.add(sunLight);
+            
+            const ambientLight = new THREE.AmbientLight(0x222233, 0.15);
+            scene.add(ambientLight);
+
+            // THE SUN - Ultra-realistic animated
+            const sunCanvas = document.createElement('canvas');
+            sunCanvas.width = 2048;
+            sunCanvas.height = 1024;
+            const sunCtx = sunCanvas.getContext('2d');
+            
+            let sunFrame = 0;
+            function updateSun() {
+                sunFrame += 0.5;
+                
+                // Core to surface gradient
+                const grad = sunCtx.createRadialGradient(1024, 512, 100, 1024, 512, 1024);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.2, '#ffffcc');
+                grad.addColorStop(0.4, '#ffff66');
+                grad.addColorStop(0.6, '#ffcc22');
+                grad.addColorStop(0.8, '#ff6600');
+                grad.addColorStop(1, '#cc2200');
+                sunCtx.fillStyle = grad;
+                sunCtx.fillRect(0, 0, 2048, 1024);
+                
+                // Plasma cells
+                sunCtx.globalCompositeOperation = 'lighter';
+                for (let i = 0; i < 150; i++) {
+                    const angle = (i * 2.4 + sunFrame * 0.5) * Math.PI / 180;
+                    const dist = 400 + Math.sin(sunFrame * 0.03 + i) * 200;
+                    const x = 1024 + Math.cos(angle) * dist;
+                    const y = 512 + Math.sin(angle) * (dist * 0.5);
+                    const size = Math.random() * 50 + 30;
+                    const intensity = Math.sin(sunFrame * 0.1 + i) * 0.4 + 0.5;
+                    
+                    const cellGrad = sunCtx.createRadialGradient(x, y, 0, x, y, size);
+                    cellGrad.addColorStop(0, `rgba(255, 255, 200, ${intensity})`);
+                    cellGrad.addColorStop(0.5, `rgba(255, 200, 50, ${intensity * 0.4})`);
+                    cellGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
+                    sunCtx.fillStyle = cellGrad;
+                    sunCtx.fillRect(x - size, y - size, size * 2, size * 2);
+                }
+                sunCtx.globalCompositeOperation = 'source-over';
+                
+                sunTexture.needsUpdate = true;
+            }
+            
+            const sunTexture = new THREE.CanvasTexture(sunCanvas);
+            const sun = new THREE.Mesh(
+                new THREE.SphereGeometry(50, 128, 128),
+                new THREE.MeshBasicMaterial({ 
+                    map: sunTexture,
+                    emissive: 0xffff44,
+                    emissiveIntensity: 1.2
+                })
+            );
+            sun.position.set(250, 50, 150);
+            scene.add(sun);
+            
+            celestialBodies.push({
+                mesh: sun,
+                name: '☀️ The Sun',
+                info: 'Our star - G-type main-sequence<br>Surface: 5,778 K (5,505 °C)<br>Hydrogen & helium plasma'
+            });
+            
+            // Corona
+            for (let i = 1; i <= 6; i++) {
+                const corona = new THREE.Mesh(
+                    new THREE.SphereGeometry(50 + (i * 15), 32, 32),
+                    new THREE.MeshBasicMaterial({
+                        color: i % 2 ? 0xffcc00 : 0xffff44,
+                        transparent: true,
+                        opacity: 0.08 / i,
+                        side: THREE.BackSide
+                    })
+                );
+                sun.add(corona);
+            }
+            
+            setInterval(updateSun, 50);
+            updateSun();
+            console.log('Sun created');
+
+            // THE MOON
+            const moonTexture = createDetailedPlanetTexture({
+                baseColor: '#888888',
+                featureColor: '#666666',
+                features: 80,
+                craters: 100,
+                craterColor: '#555555',
+                craterRim: '#999999'
+            });
+            
+            const moon = new THREE.Mesh(
+                new THREE.SphereGeometry(15, 128, 128),
+                new THREE.MeshStandardMaterial({ 
+                    map: moonTexture,
+                    roughness: 1.0,
+                    metalness: 0.0,
+                    bumpMap: moonTexture,
+                    bumpScale: 2.0
+                })
+            );
+            moon.position.set(-100, 30, 80);
+            scene.add(moon);
+            
+            celestialBodies.push({
+                mesh: moon,
+                name: '🌙 The Moon',
+                info: "Earth's natural satellite<br>Heavily cratered surface<br>384,400 km from Earth"
+            });
+            console.log('Moon created');
+
+            // MERCURY
+            const mercuryTexture = createDetailedPlanetTexture({
+                baseColor: '#8c7853',
+                featureColor: '#6a5a3d',
+                features: 100,
+                craters: 150,
+                craterColor: '#5a4a33',
+                craterRim: '#9c8863'
+            });
+            
+            const mercury = new THREE.Mesh(
+                new THREE.SphereGeometry(10, 64, 64),
+                new THREE.MeshStandardMaterial({ 
+                    map: mercuryTexture,
+                    roughness: 0.95,
+                    metalness: 0.05,
+                    bumpMap: mercuryTexture,
+                    bumpScale: 1.0
+                })
+            );
+            mercury.position.set(150, 0, 0);
+            scene.add(mercury);
+            
+            planets.push({ mesh: mercury, angle: 0, distance: 150, speed: 0.0012 });
+            celestialBodies.push({
+                mesh: mercury,
+                name: '☿ Mercury',
+                info: 'Smallest planet<br>Rocky, heavily cratered<br>-173°C to 427°C'
+            });
+            console.log('Mercury created');
+
+            // VENUS
+            const venusTexture = createDetailedPlanetTexture({
+                baseColor: '#ffc649',
+                featureColor: '#e6a830',
+                features: 200,
+                craters: 30,
+                craterColor: '#d99820',
+                craterRim: '#ffcc66'
+            });
+            
+            const venus = new THREE.Mesh(
+                new THREE.SphereGeometry(18, 64, 64),
+                new THREE.MeshStandardMaterial({ 
+                    map: venusTexture,
+                    roughness: 0.7,
+                    metalness: 0.0
+                })
+            );
+            venus.position.set(Math.cos(Math.PI * 0.4) * 200, 0, Math.sin(Math.PI * 0.4) * 200);
+            scene.add(venus);
+            
+            planets.push({ mesh: venus, angle: Math.PI * 0.4, distance: 200, speed: 0.001 });
+            celestialBodies.push({
+                mesh: venus,
+                name: '♀ Venus',
+                info: 'Hottest planet<br>Thick CO₂ atmosphere<br>462°C average'
+            });
+            console.log('Venus created');
+
+            // MARS
+            const marsTexture = createDetailedPlanetTexture({
+                baseColor: '#cd5c5c',
+                featureColor: '#8b3a3a',
+                features: 150,
+                craters: 80,
+                craterColor: '#6b2a2a',
+                craterRim: '#dd6c6c'
+            });
+            
+            const mars = new THREE.Mesh(
+                new THREE.SphereGeometry(14, 64, 64),
+                new THREE.MeshStandardMaterial({ 
+                    map: marsTexture,
+                    roughness: 0.9,
+                    metalness: 0.0,
+                    bumpMap: marsTexture,
+                    bumpScale: 0.8
+                })
+            );
+            mars.position.set(Math.cos(Math.PI * 0.8) * 250, 0, Math.sin(Math.PI * 0.8) * 250);
+            scene.add(mars);
+            
+            planets.push({ mesh: mars, angle: Math.PI * 0.8, distance: 250, speed: 0.0008 });
+            celestialBodies.push({
+                mesh: mars,
+                name: '♂ Mars',
+                info: 'The Red Planet<br>Iron oxide surface<br>Olympus Mons volcano'
+            });
+            console.log('Mars created');
+
+            // JUPITER
+            const jupiterTexture = createDetailedPlanetTexture({
+                baseColor: '#c88b3a',
+                featureColor: '#8b5a2b',
+                features: 300,
+                craters: 5,
+                craterColor: '#9b6a2b',
+                craterRim: '#d89b4a'
+            });
+            
+            const jupiter = new THREE.Mesh(
+                new THREE.SphereGeometry(30, 64, 64),
+                new THREE.MeshStandardMaterial({ 
+                    map: jupiterTexture,
+                    roughness: 0.5,
+                    metalness: 0.0
+                })
+            );
+            jupiter.position.set(Math.cos(Math.PI * 1.2) * 320, 0, Math.sin(Math.PI * 1.2) * 320);
+            scene.add(jupiter);
+            
+            planets.push({ mesh: jupiter, angle: Math.PI * 1.2, distance: 320, speed: 0.0006 });
+            celestialBodies.push({
+                mesh: jupiter,
+                name: '♃ Jupiter',
+                info: 'Largest planet - gas giant<br>Great Red Spot storm<br>95 known moons'
+            });
+            console.log('Jupiter created');
+
+            // SATURN
+            const saturnTexture = createDetailedPlanetTexture({
+                baseColor: '#fad5a5',
+                featureColor: '#d4a574',
+                features: 250,
+                craters: 10,
+                craterColor: '#c49564',
+                craterRim: '#ffe5b5'
+            });
+            
+            const saturn = new THREE.Mesh(
+                new THREE.SphereGeometry(26, 64, 64),
+                new THREE.MeshStandardMaterial({ 
+                    map: saturnTexture,
+                    roughness: 0.6,
+                    metalness: 0.0
+                })
+            );
+            saturn.position.set(Math.cos(Math.PI * 1.6) * 400, 0, Math.sin(Math.PI * 1.6) * 400);
+            
+            // Saturn's rings
+            const ringCanvas = document.createElement('canvas');
+            ringCanvas.width = 512;
+            ringCanvas.height = 512;
+            const ringCtx = ringCanvas.getContext('2d');
+            const ringGrad = ringCtx.createRadialGradient(256, 256, 100, 256, 256, 256);
+            ringGrad.addColorStop(0, 'rgba(200, 180, 150, 0)');
+            ringGrad.addColorStop(0.3, 'rgba(220, 200, 170, 0.9)');
+            ringGrad.addColorStop(0.5, 'rgba(200, 180, 150, 0.8)');
+            ringGrad.addColorStop(0.7, 'rgba(180, 160, 130, 0.6)');
+            ringGrad.addColorStop(1, 'rgba(160, 140, 110, 0)');
+            ringCtx.fillStyle = ringGrad;
+            ringCtx.fillRect(0, 0, 512, 512);
+            
+            const ringTexture = new THREE.CanvasTexture(ringCanvas);
+            const ringGeometry = new THREE.RingGeometry(26 * 1.5, 26 * 2.8, 128);
+            const ringMaterial = new THREE.MeshStandardMaterial({
+                map: ringTexture,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.95,
+                roughness: 0.8
+            });
+            const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+            rings.rotation.x = Math.PI / 2.2;
+            saturn.add(rings);
+            
+            scene.add(saturn);
+            planets.push({ mesh: saturn, angle: Math.PI * 1.6, distance: 400, speed: 0.0005 });
+            celestialBodies.push({
+                mesh: saturn,
+                name: '♄ Saturn',
+                info: 'Ringed gas giant<br>Ice & rock rings<br>146 known moons'
+            });
+            console.log('Saturn created with rings');
+
+            console.log('ALL PLANETS CREATED:', planets.length);
+
+            // Animation loop
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                // Hover detection
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(celestialBodies.map(b => b.mesh));
+                
+                if (intersects.length > 0) {
+                    const body = celestialBodies.find(b => b.mesh === intersects[0].object);
+                    if (body) {
+                        hoverLabel.innerHTML = `<div class="title">${body.name}</div><div class="details">${body.info}</div>`;
+                        hoverLabel.style.display = 'block';
+                        hoverLabel.style.left = (event.clientX + 20) + 'px';
+                        hoverLabel.style.top = (event.clientY - 50) + 'px';
+                        document.body.style.cursor = 'pointer';
+                    }
+                } else {
+                    hoverLabel.style.display = 'none';
+                    document.body.style.cursor = 'crosshair';
+                }
+                
+                // Planet animation
+                planets.forEach(planet => {
+                    planet.angle += planet.speed;
+                    planet.mesh.position.set(
+                        Math.cos(planet.angle) * planet.distance,
+                        Math.sin(planet.angle) * 20,
+                        Math.sin(planet.angle) * planet.distance
+                    );
+                    planet.mesh.rotation.y += 0.002;
+                });
+            }
+            animate();
+
+        }, 2000);
+
+        window.addEventListener('resize', () => {
+            world.width(window.innerWidth);
+            world.height(window.innerHeight);
+        });
+    </script>
+</body>
+</html>
